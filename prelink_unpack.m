@@ -5,6 +5,7 @@
 #import <fcntl.h>
 #import "prelink.h"
 #import "RegexKitLite.h"
+#import "NSData+MultipleReplacements.h"
   
 NSData *preprocessPlist(NSData *inputData);
 struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile);
@@ -12,6 +13,9 @@ NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernel
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile);
 uint32_t sizeOfMachOObject(struct mach_header *header);
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs);
+NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
+NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
+void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
 void error(const char *err);
 
 void error(const char *err) {
@@ -57,8 +61,89 @@ int main (int argc, const char * argv[]) {
         [[namedBlobs objectForKey:blobIdentifier] writeToFile:[NSString stringWithFormat:@"kexts/%@", blobIdentifier] atomically:YES];
     }
     
+    NSData *kernelData = kernelWithoutPrelinkedKexts(kernelFile);
+    [kernelData writeToFile:@"mach_kernel" atomically:YES];
+    
     [pool drain];
     return 0;
+}
+
+NSData *kernelWithoutPrelinkedKexts(void *kernelFile) {
+    uint32_t kernelSize = sizeOfMachOObject(kernelFile);
+    NSMutableData *unlinkedKernel = [NSMutableData dataWithBytes:kernelFile length:kernelSize];
+    
+    NSArray *removedRanges = removePrelinkedKexts(unlinkedKernel);
+    adjustSegmentOffsets(unlinkedKernel, removedRanges);
+    
+    return unlinkedKernel;
+}
+
+void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges) {
+    void *kernelFile = (void *)[unlinkedKernel bytes];
+    
+    NSArray *sortedRanges = [removedRanges sortedArrayUsingFunction:rangeSort context:nil];
+    NSUInteger (^newOffset)(NSUInteger) = ^(NSUInteger oldOffset) {
+        NSUInteger delta = 0;
+        NSValue *rangeValue = nil;
+        NSEnumerator *rangeEnum = [sortedRanges objectEnumerator];
+        
+        while ((rangeValue = [rangeEnum nextObject]) && oldOffset > [rangeValue rangeValue].location) delta += [rangeValue rangeValue].length;
+        return oldOffset - delta;
+    };
+    
+    struct mach_header *header = NULL;
+    struct load_command *checkCommand = NULL;
+    struct segment_command *segmentCommand = NULL;
+    struct symtab_command *symtabCommand = NULL;
+    uint32_t segment = 0;
+    
+    header = kernelFile;
+    checkCommand = kernelFile + sizeof(struct mach_header);
+    
+    do {
+        if (checkCommand->cmd == LC_SEGMENT) {
+            segmentCommand = (struct segment_command *)checkCommand;
+            segmentCommand->fileoff = newOffset(segmentCommand->fileoff);
+        } else if (checkCommand->cmd == LC_SYMTAB) {
+            symtabCommand = (struct symtab_command *)checkCommand;
+            symtabCommand->symoff = newOffset(symtabCommand->symoff);
+        }
+        
+        checkCommand = (void *)checkCommand + checkCommand->cmdsize;
+    } while (++segment < header->ncmds);
+}
+
+NSArray *removePrelinkedKexts(NSMutableData *linkedKernel) {
+    const NSUInteger numberOfSegments = 3;
+    
+    void *kernelFile = (void *)[linkedKernel bytes];
+    struct mach_header *header = kernelFile;
+    
+    NSMutableArray *segmentReplacementRanges = [[NSMutableArray alloc] initWithCapacity:(numberOfSegments * 2)];
+    NSMutableArray *segmentReplacementDatas = [[NSMutableArray alloc] initWithCapacity:(numberOfSegments * 2)];
+    NSData *nilData = [[NSData alloc] init];
+    
+    NSUInteger removedSegmentsSize = 0;
+    
+    for (NSString *segmentName in [NSArray arrayWithObjects:@"__PRELINK_INFO", @"__PRELINK_TEXT", @"__PRELINK_STATE", nil]) {
+        struct segment_command *segmentCommand = segmentWithName(segmentName, kernelFile);
+        NSRange segmentCmdRange = NSMakeRange((void *)segmentCommand - kernelFile, segmentCommand->cmdsize);
+        NSRange segmentDataRange = NSMakeRange(segmentCommand->fileoff, segmentCommand->filesize);
+        removedSegmentsSize += segmentCommand->cmdsize;        
+        
+        [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentCmdRange]];
+        [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentDataRange]];
+        
+        [segmentReplacementDatas addObject:nilData];
+        [segmentReplacementDatas addObject:nilData];
+    }
+    
+    [linkedKernel replaceBytesInRanges:segmentReplacementRanges withDatas:segmentReplacementDatas];
+    header->ncmds -= numberOfSegments;
+    header->sizeofcmds -= removedSegmentsSize;
+    
+    [segmentReplacementDatas release];
+    return [segmentReplacementRanges autorelease];
 }
 
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs) {

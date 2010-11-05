@@ -11,6 +11,7 @@
 		8DD76F9C0486AA7600D96B5E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08FB779EFE84155DC02AAC07 /* Foundation.framework */; };
 		DD2C62981282E9A1004DC6C3 /* RegexKitLite.m in Sources */ = {isa = PBXBuildFile; fileRef = DD2C62971282E9A1004DC6C3 /* RegexKitLite.m */; };
 		DD2C629E1282E9CE004DC6C3 /* libicucore.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = DD2C629D1282E9CE004DC6C3 /* libicucore.dylib */; };
+		DD43B0FA1283A127007E81D3 /* NSData+MultipleReplacements.m in Sources */ = {isa = PBXBuildFile; fileRef = DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -33,6 +34,8 @@
 		DD2C62961282E9A1004DC6C3 /* RegexKitLite.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegexKitLite.h; path = RegexKitLite/RegexKitLite.h; sourceTree = SOURCE_ROOT; };
 		DD2C62971282E9A1004DC6C3 /* RegexKitLite.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = RegexKitLite.m; path = RegexKitLite/RegexKitLite.m; sourceTree = SOURCE_ROOT; };
 		DD2C629D1282E9CE004DC6C3 /* libicucore.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libicucore.dylib; path = usr/lib/libicucore.dylib; sourceTree = SDKROOT; };
+		DD43B0F81283A127007E81D3 /* NSData+MultipleReplacements.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSData+MultipleReplacements.h"; sourceTree = "<group>"; };
+		DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSData+MultipleReplacements.m"; sourceTree = "<group>"; };
 		DD573BB81282D6BC000B13D2 /* prelink.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = prelink.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -67,6 +70,8 @@
 				32A70AAB03705E1F00C91783 /* prelink_unpack_Prefix.pch */,
 				08FB7796FE84155DC02AAC07 /* prelink_unpack.m */,
 				DD573BB81282D6BC000B13D2 /* prelink.h */,
+				DD43B0F81283A127007E81D3 /* NSData+MultipleReplacements.h */,
+				DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */,
 			);
 			name = Source;
 			sourceTree = "<group>";
@@ -156,6 +161,7 @@
 			files = (
 				8DD76F9A0486AA7600D96B5E /* prelink_unpack.m in Sources */,
 				DD2C62981282E9A1004DC6C3 /* RegexKitLite.m in Sources */,
+				DD43B0FA1283A127007E81D3 /* NSData+MultipleReplacements.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
