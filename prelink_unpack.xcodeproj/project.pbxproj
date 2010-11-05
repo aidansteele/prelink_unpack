@@ -36,6 +36,7 @@
 		DD2C629D1282E9CE004DC6C3 /* libicucore.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libicucore.dylib; path = usr/lib/libicucore.dylib; sourceTree = SDKROOT; };
 		DD43B0F81283A127007E81D3 /* NSData+MultipleReplacements.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "NSData+MultipleReplacements.h"; sourceTree = "<group>"; };
 		DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSData+MultipleReplacements.m"; sourceTree = "<group>"; };
+		DD43B21C1283BF79007E81D3 /* README.markdown */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README.markdown; sourceTree = "<group>"; };
 		DD573BB81282D6BC000B13D2 /* prelink.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = prelink.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -96,6 +97,7 @@
 		C6859EA2029092E104C91782 /* Documentation */ = {
 			isa = PBXGroup;
 			children = (
+				DD43B21C1283BF79007E81D3 /* README.markdown */,
 			);
 			name = Documentation;
 			sourceTree = "<group>";
