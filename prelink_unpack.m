@@ -120,6 +120,7 @@ void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges)
     struct load_command *checkCommand = NULL;
     struct segment_command *segmentCommand = NULL;
     struct symtab_command *symtabCommand = NULL;
+    struct section *section = NULL;
     uint32_t segment = 0;
     
     header = kernelFile;
@@ -129,9 +130,17 @@ void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges)
         if (checkCommand->cmd == LC_SEGMENT) {
             segmentCommand = (struct segment_command *)checkCommand;
             segmentCommand->fileoff = newOffset(segmentCommand->fileoff);
+            
+            for (uint32_t sectionIdx = 0; sectionIdx < segmentCommand->nsects; sectionIdx++) {
+                section = (void *)segmentCommand + sizeof(struct segment_command) + sectionIdx * sizeof(struct section);
+                section->offset = newOffset(section->offset);
+                section->reloff = newOffset(section->reloff);
+            }
+            
         } else if (checkCommand->cmd == LC_SYMTAB) {
             symtabCommand = (struct symtab_command *)checkCommand;
             symtabCommand->symoff = newOffset(symtabCommand->symoff);
+            symtabCommand->stroff = newOffset(symtabCommand->stroff);
         }
         
         checkCommand = (void *)checkCommand + checkCommand->cmdsize;
@@ -218,7 +227,7 @@ struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile)
         checkCommand = (void *)checkCommand + checkCommand->cmdsize;
     } while (++segment < header->ncmds);
     
-    return segmentCommand;
+    return NULL;
 }
 
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile) { 
@@ -272,7 +281,7 @@ NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernel
     uint32_t infoOffset = segmentCommand->fileoff;
     uint32_t infoSize = segmentCommand->filesize;
 
-    NSData *kextsPlistData = [[NSData alloc] initWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize];
+    NSData *kextsPlistData = [[NSData alloc] initWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize freeWhenDone:NO];
     kextsPlistData = preprocessPlist(kextsPlistData);
     
     NSDictionary *kextsPlistRoot = [NSPropertyListSerialization propertyListWithData:kextsPlistData options:0 format:nil error:nil];
