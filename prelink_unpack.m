@@ -42,11 +42,9 @@ NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensi
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
 void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
-<<<<<<< HEAD
 NSData *generateSystemKext(void *kernelFile);
-=======
 void createKernelExtensionFileHierarchy(NSDictionary *namedKexts);
->>>>>>> master
+
 void error(const char *err);
 
 void error(const char *err) {
