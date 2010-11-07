@@ -40,7 +40,7 @@ uint32_t sizeOfMachOObject(struct mach_header *header);
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs);
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
-void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
+void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
 void error(const char *err);
 
 void error(const char *err) {
@@ -98,12 +98,12 @@ NSData *kernelWithoutPrelinkedKexts(void *kernelFile) {
     NSMutableData *unlinkedKernel = [NSMutableData dataWithBytes:kernelFile length:kernelSize];
     
     NSArray *removedRanges = removePrelinkedKexts(unlinkedKernel);
-    adjustSegmentOffsets(unlinkedKernel, removedRanges);
+    adjustKernelOffsets(unlinkedKernel, removedRanges);
     
     return unlinkedKernel;
 }
 
-void adjustSegmentOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges) {
+void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges) {
     void *kernelFile = (void *)[unlinkedKernel bytes];
     
     NSArray *sortedRanges = [removedRanges sortedArrayUsingFunction:rangeSort context:nil];
