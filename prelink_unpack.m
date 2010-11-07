@@ -188,6 +188,7 @@ NSArray *removePrelinkedKexts(NSMutableData *linkedKernel) {
     header->sizeofcmds -= removedSegmentsSize;
     
     [segmentReplacementDatas release];
+    [nilData release];
     return [segmentReplacementRanges autorelease];
 }
 
@@ -255,7 +256,7 @@ NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFi
         reference = strstr(reference, magic);
         uint32_t objectSize = sizeOfMachOObject((struct mach_header *)reference);
         
-        NSData *objectData = [[NSData alloc] initWithBytes:reference length:objectSize];
+        NSData *objectData = [[NSData alloc] initWithBytesNoCopy:reference length:objectSize freeWhenDone:NO];
         [kextObjects addObject:objectData];
         [objectData release];
         
@@ -293,13 +294,12 @@ NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernel
     uint32_t infoOffset = segmentCommand->fileoff;
     uint32_t infoSize = segmentCommand->filesize;
 
-    NSData *kextsPlistData = [[NSData alloc] initWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize freeWhenDone:NO];
+    NSData *kextsPlistData = [NSData dataWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize freeWhenDone:NO];
     kextsPlistData = preprocessPlist(kextsPlistData);
     
     NSDictionary *kextsPlistRoot = [NSPropertyListSerialization propertyListWithData:kextsPlistData options:0 format:nil error:nil];
     NSArray *prelinkInfo = [kextsPlistRoot objectForKey:[NSString stringWithUTF8String:kPrelinkInfoDictionaryKey]];
 
-    [kextsPlistData release];
     return prelinkInfo;
 }
 
