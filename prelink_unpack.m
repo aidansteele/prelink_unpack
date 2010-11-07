@@ -42,7 +42,11 @@ NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensi
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
 void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
+<<<<<<< HEAD
 NSData *generateSystemKext(void *kernelFile);
+=======
+void createKernelExtensionFileHierarchy(NSDictionary *namedKexts);
+>>>>>>> master
 void error(const char *err);
 
 void error(const char *err) {
@@ -82,11 +86,8 @@ int main (int argc, const char * argv[]) {
     
     NSArray *prelinkInfo = arrayOfPrelinkInfo(segmentPrelinkInfo, kernelFile);
     NSArray *blobsArray = arrayOfKextBlobs(segmentPrelinkText, kernelFile);
-    NSDictionary *namedBlobs = namedKernelExtensions(prelinkInfo, blobsArray);
-    
-    for (NSString *blobIdentifier in namedBlobs) {
-        [[namedBlobs objectForKey:blobIdentifier] writeToFile:[NSString stringWithFormat:@"kexts/%@", blobIdentifier] atomically:YES];
-    }
+    NSDictionary *namedKexts = namedKernelExtensions(prelinkInfo, blobsArray);
+    createKernelExtensionFileHierarchy(namedKexts);
     
     NSData *systemKextFile = generateSystemKext(kernelFile);
     [systemKextFile writeToFile:@"systemkext" atomically:YES];
@@ -98,6 +99,19 @@ int main (int argc, const char * argv[]) {
     
     [pool drain];
     return 0;
+}
+
+void createKernelExtensionFileHierarchy(NSDictionary *namedKexts) {
+    for (NSString *kextName in namedKexts) {
+        NSArray *kextArray = [namedKexts objectForKey:kextName];
+        NSData *kextBlob = [kextArray objectAtIndex:0];
+        id kextPlist = [kextArray objectAtIndex:1];
+        
+        NSString *kextPath = [NSString stringWithFormat:@"kexts/%@.kext/Contents/MacOS", kextName];
+        [[NSFileManager defaultManager] createDirectoryAtPath:kextPath withIntermediateDirectories:YES attributes:nil error:nil];
+        [kextBlob writeToFile:[kextPath stringByAppendingPathComponent:kextName] atomically:YES];
+        [kextPlist writeToFile:[[kextPath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Info.plist"] atomically:YES];
+    }
 }
 
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile) {
@@ -184,14 +198,15 @@ NSArray *removePrelinkedKexts(NSMutableData *linkedKernel) {
     header->sizeofcmds -= removedSegmentsSize;
     
     [segmentReplacementDatas release];
+    [nilData release];
     return [segmentReplacementRanges autorelease];
 }
 
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs) {
     NSMutableDictionary *namedDictionary = [NSMutableDictionary dictionaryWithCapacity:[kernelExtensionBlobs count]];
     
-    for (NSData *kext in kernelExtensionBlobs) {
-        const char *bytes = [kext bytes];
+    for (NSData *kextBlob in kernelExtensionBlobs) {
+        const char *bytes = [kextBlob bytes];
         struct segment_command *segmentText = segmentWithName(@"__TEXT", (void *)bytes);
         uint32_t vmAddr = segmentText->vmaddr - 0x1000; // TODO: why?
         NSNumber *vmAddrNumber = [NSNumber numberWithLong:vmAddr];
@@ -208,8 +223,9 @@ NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensi
         
         if (prelinkIndex == NSNotFound) continue;
         
-        NSString *identifier = [[prelinkInfo objectAtIndex:prelinkIndex] objectForKey:(NSString *)kCFBundleIdentifierKey];
-        [namedDictionary setObject:kext forKey:identifier];
+        NSString *identifier = [[prelinkInfo objectAtIndex:prelinkIndex] objectForKey:(NSString *)kCFBundleExecutableKey];
+        NSArray *kextEntry = [NSArray arrayWithObjects:kextBlob, [prelinkInfo objectAtIndex:prelinkIndex], nil];
+        [namedDictionary setObject:kextEntry forKey:identifier];
     }
     
     return namedDictionary;
@@ -234,7 +250,7 @@ struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile)
         checkCommand = (void *)checkCommand + checkCommand->cmdsize;
     } while (++segment < header->ncmds);
     
-    return NULL;
+    return segmentCommand;
 }
 
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile) { 
@@ -250,7 +266,7 @@ NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFi
         reference = strstr(reference, magic);
         uint32_t objectSize = sizeOfMachOObject((struct mach_header *)reference);
         
-        NSData *objectData = [[NSData alloc] initWithBytes:reference length:objectSize];
+        NSData *objectData = [[NSData alloc] initWithBytesNoCopy:reference length:objectSize freeWhenDone:NO];
         [kextObjects addObject:objectData];
         [objectData release];
         
@@ -288,13 +304,12 @@ NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernel
     uint32_t infoOffset = segmentCommand->fileoff;
     uint32_t infoSize = segmentCommand->filesize;
 
-    NSData *kextsPlistData = [[NSData alloc] initWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize freeWhenDone:NO];
+    NSData *kextsPlistData = [NSData dataWithBytesNoCopy:(kernelFile + infoOffset) length:infoSize freeWhenDone:NO];
     kextsPlistData = preprocessPlist(kextsPlistData);
     
     NSDictionary *kextsPlistRoot = [NSPropertyListSerialization propertyListWithData:kextsPlistData options:0 format:nil error:nil];
     NSArray *prelinkInfo = [kextsPlistRoot objectForKey:[NSString stringWithUTF8String:kPrelinkInfoDictionaryKey]];
 
-    [kextsPlistData release];
     return prelinkInfo;
 }
 

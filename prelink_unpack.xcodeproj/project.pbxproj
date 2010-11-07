@@ -187,6 +187,7 @@
 				GCC_PREFIX_HEADER = prelink_unpack_Prefix.pch;
 				INSTALL_PATH = /usr/local/bin;
 				PRODUCT_NAME = prelink_unpack;
+				RUN_CLANG_STATIC_ANALYZER = YES;
 			};
 			name = Debug;
 		};
@@ -200,6 +201,7 @@
 				GCC_PREFIX_HEADER = prelink_unpack_Prefix.pch;
 				INSTALL_PATH = /usr/local/bin;
 				PRODUCT_NAME = prelink_unpack;
+				RUN_CLANG_STATIC_ANALYZER = YES;
 			};
 			name = Release;
 		};
