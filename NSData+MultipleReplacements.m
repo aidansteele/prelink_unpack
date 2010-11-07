@@ -44,7 +44,7 @@ NSInteger rangeSort(id valueA, id valueB, void *context)
 - (void)replaceBytesInRanges:(NSArray *)ranges withDatas:(NSArray *)datas {
     if ([ranges count] != [datas count]) @throw [NSException exceptionWithName:@"-replaceBytesInRanges" reason:nil userInfo:nil];
     
-    NSArray *sortedRangesBroken = [ranges sortedArrayUsingComparator:(NSComparator)^(id a, id b) {
+    /*NSArray *sortedRangesBroken = [ranges sortedArrayUsingComparator:(NSComparator)^(id a, id b) {
         NSRange rangeA = [a rangeValue];
         NSRange rangeB = [b rangeValue];
         
@@ -57,7 +57,7 @@ NSInteger rangeSort(id valueA, id valueB, void *context)
         }
         
         //return ((rangeA.location < rangeB.location) ? NSOrderedAscending : NSOrderedDescending);
-    }];
+    }];*/
     
     NSArray *sortedRanges = [ranges sortedArrayUsingFunction:rangeSort context:NULL];
     NSMutableArray *newRanges = [[NSMutableArray alloc] initWithCapacity:[sortedRanges count]];
@@ -82,6 +82,19 @@ NSInteger rangeSort(id valueA, id valueB, void *context)
         
         [self replaceBytesInRange:range withBytes:[data bytes] length:[data length]];
     }
+}
+
++ (id)dataWithDatas:(NSData *)firstData, ... {
+    NSMutableData *mutableData = [NSMutableData dataWithCapacity:[firstData length]];
+    
+    va_list args;
+    va_start(args, firstData);
+    
+    NSData *data;
+    for (data = firstData; data != nil; data = va_arg(args, NSData *)) [mutableData appendData:data];
+    va_end(args);
+    
+    return mutableData;
 }
 
 @end
