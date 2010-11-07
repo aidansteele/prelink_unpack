@@ -38,6 +38,8 @@
 		DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "NSData+MultipleReplacements.m"; sourceTree = "<group>"; };
 		DD43B21C1283BF79007E81D3 /* README.markdown */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README.markdown; sourceTree = "<group>"; };
 		DD573BB81282D6BC000B13D2 /* prelink.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = prelink.h; sourceTree = "<group>"; };
+		DD7A80E21284FFE1000DEA92 /* prelink_repack.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = prelink_repack.h; sourceTree = "<group>"; };
+		DD7A80E31284FFE1000DEA92 /* prelink_repack.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = prelink_repack.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +75,8 @@
 				DD573BB81282D6BC000B13D2 /* prelink.h */,
 				DD43B0F81283A127007E81D3 /* NSData+MultipleReplacements.h */,
 				DD43B0F91283A127007E81D3 /* NSData+MultipleReplacements.m */,
+				DD7A80E21284FFE1000DEA92 /* prelink_repack.h */,
+				DD7A80E31284FFE1000DEA92 /* prelink_repack.m */,
 			);
 			name = Source;
 			sourceTree = "<group>";

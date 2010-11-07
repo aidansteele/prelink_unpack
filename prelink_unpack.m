@@ -25,6 +25,7 @@
 
 #import <Foundation/Foundation.h>
 #import <mach-o/loader.h>
+#import <mach-o/nlist.h>
 #import <sys/mman.h>
 #import <sys/stat.h>
 #import <fcntl.h>
@@ -41,6 +42,7 @@ NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensi
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
 void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
+NSData *generateSystemKext(void *kernelFile);
 void error(const char *err);
 
 void error(const char *err) {
@@ -86,8 +88,13 @@ int main (int argc, const char * argv[]) {
         [[namedBlobs objectForKey:blobIdentifier] writeToFile:[NSString stringWithFormat:@"kexts/%@", blobIdentifier] atomically:YES];
     }
     
+    NSData *systemKextFile = generateSystemKext(kernelFile);
+    [systemKextFile writeToFile:@"systemkext" atomically:YES];
+    
     NSData *kernelData = kernelWithoutPrelinkedKexts(kernelFile);
     [kernelData writeToFile:@"mach_kernel" atomically:YES];
+    
+    [prelinkInfo writeToFile:@"prelink_info.plist" atomically:YES];
     
     [pool drain];
     return 0;
@@ -300,4 +307,63 @@ NSData *preprocessPlist(NSData *inputData) {
     [intermediateString release];
     return outputData;
     
+}
+
+NSData *generateSystemKext(void *kernelFile) {
+    struct mach_header *header = NULL;
+    struct load_command *checkCommand = NULL;
+    struct symtab_command *symtabCommand = NULL;
+    uint32_t segment = 0;
+    
+    header = kernelFile;
+    checkCommand = kernelFile + sizeof(struct mach_header);
+    
+    do {
+        if (checkCommand->cmd == LC_SYMTAB) {        
+            symtabCommand = (struct symtab_command *)checkCommand;
+            break;
+        }
+        
+        checkCommand = (void *)checkCommand + checkCommand->cmdsize;
+    } while (++segment < header->ncmds);
+    if (!symtabCommand) error("Unable to find symbol table in prelinked kernel.");
+    
+    uint32_t symtabSize = symtabCommand->nsyms * sizeof(struct nlist);
+    void *symTable = malloc(symtabSize);
+    memcpy(symTable, kernelFile + symtabCommand->symoff, symtabSize);
+    
+    for (int idx = 0; idx < symtabCommand->nsyms; idx++) {
+        struct nlist *symbol = symTable + (idx * sizeof(struct nlist));
+        symbol->n_sect = 0;
+        symbol->n_type = N_EXT;
+        symbol->n_value = 0;
+    }
+    
+    NSData *symTableData = [[NSData alloc] initWithBytesNoCopy:symTable length:symtabSize];
+    NSData *symStrings = [[NSData alloc] initWithBytes:(kernelFile + symtabCommand->stroff) length:symtabCommand->strsize];
+    
+    struct mach_header kextHeader = {
+        .magic = MH_MAGIC,
+        .cputype = CPU_TYPE_ARM,
+        .cpusubtype = CPU_SUBTYPE_ARM_ALL,
+        .filetype = MH_OBJECT, //MH_EXECUTE, // MH_KEXT_BUNDLE for x86_64
+        .ncmds = 1,
+        .sizeofcmds = sizeof(struct symtab_command),
+        .flags = MH_INCRLINK,
+    };
+    
+    struct symtab_command kextSymtabCommand = {
+        .cmd = LC_SYMTAB,
+        .cmdsize = sizeof(struct symtab_command),
+        .symoff = sizeof(struct mach_header) + sizeof(struct symtab_command),
+        .nsyms = symtabCommand->nsyms,
+        .stroff = sizeof(struct mach_header) + sizeof(struct symtab_command) + symtabSize,
+        .strsize = symtabCommand->strsize,
+    };
+    
+    NSData *kextHeaderData = [NSData dataWithBytesNoCopy:&kextHeader length:sizeof(struct mach_header) freeWhenDone:NO];
+    NSData *kextSymtabCommandData = [NSData dataWithBytes:&kextSymtabCommand length:sizeof(struct symtab_command)];
+    
+    NSMutableData *systemKextFileData = [NSMutableData dataWithDatas:kextHeaderData, kextSymtabCommandData, symTableData, symStrings, nil];
+    return systemKextFileData;
 }
