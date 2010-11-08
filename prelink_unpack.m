@@ -39,7 +39,7 @@ NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFi
 uint32_t sizeOfMachOObject(struct mach_header *header);
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs);
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
-NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel);
+NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel, void *kernelFile, BOOL removePrelinkSegments);
 void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
 void createKernelExtensionFileHierarchy(NSDictionary *namedKexts);
 void error(const char *err);
@@ -108,7 +108,7 @@ NSData *kernelWithoutPrelinkedKexts(void *kernelFile) {
     uint32_t kernelSize = sizeOfMachOObject(kernelFile);
     NSMutableData *unlinkedKernel = [NSMutableData dataWithBytes:kernelFile length:kernelSize];
     
-    NSArray *removedRanges = removePrelinkedKexts(unlinkedKernel);
+    NSArray *removedRanges = removePrelinkedKexts(unlinkedKernel, kernelFile, NO);
     adjustKernelOffsets(unlinkedKernel, removedRanges);
     
     return unlinkedKernel;
@@ -158,11 +158,11 @@ void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges) 
     } while (++segment < header->ncmds);
 }
 
-NSArray *removePrelinkedKexts(NSMutableData *linkedKernel) {
+NSArray *removePrelinkedKexts(NSMutableData *linkedKernel, void *kernelFile, BOOL removePrelinkSegments) {
     const NSUInteger numberOfSegments = 3;
     
-    void *kernelFile = (void *)[linkedKernel bytes];
-    struct mach_header *header = kernelFile;
+    void *linkedKernelFile = (void *)[linkedKernel bytes];
+    struct mach_header *header = linkedKernelFile;
     
     NSMutableArray *segmentReplacementRanges = [[NSMutableArray alloc] initWithCapacity:(numberOfSegments * 2)];
     NSMutableArray *segmentReplacementDatas = [[NSMutableArray alloc] initWithCapacity:(numberOfSegments * 2)];
@@ -174,17 +174,34 @@ NSArray *removePrelinkedKexts(NSMutableData *linkedKernel) {
         struct segment_command *segmentCommand = segmentWithName(segmentName, kernelFile);
         NSRange segmentCmdRange = NSMakeRange((void *)segmentCommand - kernelFile, segmentCommand->cmdsize);
         NSRange segmentDataRange = NSMakeRange(segmentCommand->fileoff, segmentCommand->filesize);
-        removedSegmentsSize += segmentCommand->cmdsize;        
+                
         
+        if (!removePrelinkSegments) {
+            segmentCmdRange = NSMakeRange((void *)segmentCommand - kernelFile + sizeof(struct segment_command), 
+                                          segmentCommand->cmdsize - sizeof(struct segment_command));
+            
+            void *linkedKernelFile = (void *)[linkedKernel bytes];
+            struct segment_command *mutableSegmentCommand = linkedKernelFile + ((void *)segmentCommand - kernelFile);
+            
+            mutableSegmentCommand->fileoff = 0;
+            mutableSegmentCommand->filesize = 0;
+            mutableSegmentCommand->nsects = 0;
+            mutableSegmentCommand->cmdsize = sizeof(struct segment_command);
+            removedSegmentsSize += segmentCommand->cmdsize - sizeof(struct segment_command);       
+        } else {
+           removedSegmentsSize += segmentCommand->cmdsize;  
+        }
+        
+         
         [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentCmdRange]];
-        [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentDataRange]];
-        
         [segmentReplacementDatas addObject:nilData];
+        
+        [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentDataRange]];
         [segmentReplacementDatas addObject:nilData];
     }
     
     [linkedKernel replaceBytesInRanges:segmentReplacementRanges withDatas:segmentReplacementDatas];
-    header->ncmds -= numberOfSegments;
+    if (removePrelinkSegments) header->ncmds -= numberOfSegments;
     header->sizeofcmds -= removedSegmentsSize;
     
     [segmentReplacementDatas release];
