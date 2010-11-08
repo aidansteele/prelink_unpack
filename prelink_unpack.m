@@ -176,26 +176,25 @@ NSArray *removePrelinkedKexts(NSMutableData *linkedKernel, void *kernelFile, BOO
         NSRange segmentDataRange = NSMakeRange(segmentCommand->fileoff, segmentCommand->filesize);
                 
         
-        if (!removePrelinkSegments) {
-            segmentCmdRange = NSMakeRange((void *)segmentCommand - kernelFile + sizeof(struct segment_command), 
-                                          segmentCommand->cmdsize - sizeof(struct segment_command));
-            
+        if (!removePrelinkSegments) {            
             void *linkedKernelFile = (void *)[linkedKernel bytes];
             struct segment_command *mutableSegmentCommand = linkedKernelFile + ((void *)segmentCommand - kernelFile);
+
+            for (int sectionIdx = 0; sectionIdx < segmentCommand->nsects; sectionIdx++) {
+                struct section *mutableSection = linkedKernelFile + ((void *)segmentCommand - kernelFile) + sizeof(struct segment_command) + (sizeof(struct section) * sectionIdx);
+                mutableSection->size = 0;
+                mutableSection->offset = 0;
+                mutableSection->reloff = 0; 
+            }
             
             mutableSegmentCommand->fileoff = 0;
-            mutableSegmentCommand->filesize = 0;
-            mutableSegmentCommand->nsects = 0;
-            mutableSegmentCommand->cmdsize = sizeof(struct segment_command);
-            removedSegmentsSize += segmentCommand->cmdsize - sizeof(struct segment_command);       
+            mutableSegmentCommand->filesize = 0;     
         } else {
-           removedSegmentsSize += segmentCommand->cmdsize;  
+            removedSegmentsSize += segmentCommand->cmdsize; 
+            [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentCmdRange]];
+            [segmentReplacementDatas addObject:nilData];
         }
-        
-         
-        [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentCmdRange]];
-        [segmentReplacementDatas addObject:nilData];
-        
+
         [segmentReplacementRanges addObject:[NSValue valueWithRange:segmentDataRange]];
         [segmentReplacementDatas addObject:nilData];
     }
