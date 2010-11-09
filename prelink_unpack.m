@@ -37,6 +37,7 @@ struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile)
 NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernelFile);
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile);
 uint32_t sizeOfMachOObject(struct mach_header *header);
+NSDictionary *kextEntryPoints(void *kernelFile, NSArray *prelinkInfoArray);
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs);
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel, void *kernelFile, BOOL removePrelinkSegments);
@@ -80,12 +81,22 @@ int main (int argc, const char * argv[]) {
     struct segment_command *segmentPrelinkText = segmentWithName(@"__PRELINK_TEXT", kernelFile);
     
     NSArray *prelinkInfo = arrayOfPrelinkInfo(segmentPrelinkInfo, kernelFile);
+    NSDictionary *entryPoints = kextEntryPoints(kernelFile, prelinkInfo);
     NSArray *blobsArray = arrayOfKextBlobs(segmentPrelinkText, kernelFile);
     NSDictionary *namedKexts = namedKernelExtensions(prelinkInfo, blobsArray);
-    createKernelExtensionFileHierarchy(namedKexts);
-    
     NSData *kernelData = kernelWithoutPrelinkedKexts(kernelFile);
+    
+    createKernelExtensionFileHierarchy(namedKexts);
     [kernelData writeToFile:@"mach_kernel" atomically:YES];
+    
+    // print entrypoints to stdout
+    for (NSString *kextName in entryPoints) {
+        NSArray *addresses = [entryPoints objectForKey:kextName];
+        NSNumber *startAddress = [addresses objectAtIndex:0];
+        NSNumber *stopAddress = [addresses objectAtIndex:1];
+        
+        printf("%sStart: 0x%x\n%sStop: 0x%x\n\n", [kextName UTF8String], [startAddress unsignedIntValue], [kextName UTF8String], [stopAddress unsignedIntValue]);
+    }
     
     [pool drain];
     return 0;
@@ -304,6 +315,31 @@ uint32_t sizeOfMachOObject(struct mach_header *header) {
     } while (++segment < header->ncmds);
     
     return fileOffset + fileSize;
+}
+
+NSDictionary *kextEntryPoints(void *kernelFile, NSArray *prelinkInfoArray) {
+    NSMutableDictionary *entryPoints = [NSMutableDictionary dictionaryWithCapacity:[prelinkInfoArray count]];
+    
+    struct segment_command *prelinkTextSegment = segmentWithName(@"__PRELINK_TEXT", kernelFile);
+    if (prelinkTextSegment->nsects != 1) error("Too many sections in __PRELINK_TEXT segment. Unsure how to proceed.");
+    struct section *textSection = (void *)prelinkTextSegment + sizeof(struct segment_command);
+    uint32_t prelinkLoadAddress = textSection->addr;
+    void *basePointer = kernelFile + textSection->offset;
+    
+    for (NSDictionary *kextDict in prelinkInfoArray) {
+        if ([kextDict objectForKey:[NSString stringWithUTF8String:kPrelinkKmodInfoKey]]) {
+            NSNumber *kmodAddress = [kextDict objectForKey:[NSString stringWithUTF8String:kPrelinkKmodInfoKey]];
+            NSString *identifier = [kextDict objectForKey:(NSString *)kCFBundleExecutableKey];
+            
+            kmod_info_32_v1_t *kmodInfo = basePointer + ([kmodAddress unsignedIntValue] - prelinkLoadAddress);
+            NSNumber *startAddr = [NSNumber numberWithUnsignedInt:kmodInfo->start_addr];
+            NSNumber *stopAddr = [NSNumber numberWithUnsignedInt:kmodInfo->stop_addr];
+            
+            [entryPoints setObject:[NSArray arrayWithObjects:startAddr, stopAddr, nil] forKey:identifier];
+        }
+    }
+    
+    return entryPoints;
 }
 
 NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernelFile) {
