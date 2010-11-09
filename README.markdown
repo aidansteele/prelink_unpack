@@ -6,6 +6,23 @@ prelink_unpack
 It returns both the unpacked `mach_kernel` Mach-O object and the unpacked kernel extensions. Example usage:
 
     $ ./prelink_unpack kernelcache.dump 
+    AppleS5L8900XStart: 0x806ae4c1
+    AppleS5L8900XStop: 0x806ae4f5
+
+    AppleHIDKeyboardStart: 0x806c03e9
+    AppleHIDKeyboardStop: 0x806c041d
+
+    AppleDiskImagesKernelBackedStart: 0x8035ee2d
+    AppleDiskImagesKernelBackedStop: 0x8035ee61
+
+    IOCameraFamilyStart: 0x80555919
+    IOCameraFamilyStop: 0x8055594d
+
+    ...
+
+    IOUSBDeviceFamilyStart: 0x802cc425
+    IOUSBDeviceFamilyStop: 0x802cc459
+
     $ ls -R
     kernelcache.dump
     kexts/
