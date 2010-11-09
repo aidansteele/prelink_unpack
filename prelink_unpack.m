@@ -25,14 +25,17 @@
 
 #import <Foundation/Foundation.h>
 #import <mach-o/loader.h>
+#import <mach-o/nlist.h>
 #import <sys/mman.h>
 #import <sys/stat.h>
+#import <string.h>
 #import <fcntl.h>
 #import "prelink.h"
 #import "RegexKitLite.h"
 #import "NSData+MultipleReplacements.h"
   
 NSData *preprocessPlist(NSData *inputData);
+struct load_command *loadCommandPassingTest(void *kernelFile, BOOL (^commandTest)(struct load_command *));
 struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile);
 NSArray *arrayOfPrelinkInfo(struct segment_command *segmentCommand, void *kernelFile);
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile);
@@ -41,7 +44,8 @@ NSDictionary *kextEntryPoints(void *kernelFile, NSArray *prelinkInfoArray);
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs);
 NSData *kernelWithoutPrelinkedKexts(void *kernelFile);
 NSArray *removePrelinkedKexts(NSMutableData *unlinkedKernel, void *kernelFile, BOOL removePrelinkSegments);
-void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges);
+void symbolicateKexts(NSDictionary *entryPoints, NSDictionary *namedExtensions);
+void adjustOffsets(NSMutableData *unlinkedKernel, NSArray *ranges, BOOL removed);
 void createKernelExtensionFileHierarchy(NSDictionary *namedKexts);
 void error(const char *err);
 
@@ -81,9 +85,10 @@ int main (int argc, const char * argv[]) {
     struct segment_command *segmentPrelinkText = segmentWithName(@"__PRELINK_TEXT", kernelFile);
     
     NSArray *prelinkInfo = arrayOfPrelinkInfo(segmentPrelinkInfo, kernelFile);
-    NSDictionary *entryPoints = kextEntryPoints(kernelFile, prelinkInfo);
     NSArray *blobsArray = arrayOfKextBlobs(segmentPrelinkText, kernelFile);
+    NSDictionary *entryPoints = kextEntryPoints(kernelFile, prelinkInfo);
     NSDictionary *namedKexts = namedKernelExtensions(prelinkInfo, blobsArray);
+    symbolicateKexts(entryPoints, namedKexts);
     NSData *kernelData = kernelWithoutPrelinkedKexts(kernelFile);
     
     createKernelExtensionFileHierarchy(namedKexts);
@@ -120,15 +125,15 @@ NSData *kernelWithoutPrelinkedKexts(void *kernelFile) {
     NSMutableData *unlinkedKernel = [NSMutableData dataWithBytes:kernelFile length:kernelSize];
     
     NSArray *removedRanges = removePrelinkedKexts(unlinkedKernel, kernelFile, NO);
-    adjustKernelOffsets(unlinkedKernel, removedRanges);
+    adjustOffsets(unlinkedKernel, removedRanges, YES);
     
     return unlinkedKernel;
 }
 
-void adjustKernelOffsets(NSMutableData *unlinkedKernel, NSArray *removedRanges) {
+void adjustOffsets(NSMutableData *unlinkedKernel, NSArray *ranges, BOOL removed) {
     void *kernelFile = (void *)[unlinkedKernel bytes];
     
-    NSArray *sortedRanges = [removedRanges sortedArrayUsingFunction:rangeSort context:nil];
+    NSArray *sortedRanges = [ranges sortedArrayUsingFunction:rangeSort context:nil];
     NSUInteger (^newOffset)(NSUInteger) = ^(NSUInteger oldOffset) {
         NSUInteger delta = 0;
         NSValue *rangeValue = nil;
@@ -222,52 +227,57 @@ NSArray *removePrelinkedKexts(NSMutableData *linkedKernel, void *kernelFile, BOO
 NSDictionary *namedKernelExtensions(NSArray *prelinkInfo, NSArray *kernelExtensionBlobs) {
     NSMutableDictionary *namedDictionary = [NSMutableDictionary dictionaryWithCapacity:[kernelExtensionBlobs count]];
     
-    for (NSData *kextBlob in kernelExtensionBlobs) {
-        const char *bytes = [kextBlob bytes];
-        struct segment_command *segmentText = segmentWithName(@"__TEXT", (void *)bytes);
-        uint32_t vmAddr = segmentText->vmaddr - 0x1000; // TODO: why?
-        NSNumber *vmAddrNumber = [NSNumber numberWithLong:vmAddr];
+    for (NSDictionary *prelink in prelinkInfo) {
+        NSNumber *loadAddr = [prelink objectForKey:[NSString stringWithUTF8String:kPrelinkExecutableLoadKey]];
         
-        NSUInteger prelinkIndex = [prelinkInfo indexOfObjectPassingTest:^(id obj, NSUInteger idx, BOOL *stop) {
-            NSNumber *loadAddr = [obj objectForKey:[NSString stringWithUTF8String:kPrelinkExecutableLoadKey]];
-            if ([loadAddr isEqualToNumber:vmAddrNumber]) {
-                *stop = YES;
-                return YES;
-            }
+        NSUInteger kextBlobIndex = [kernelExtensionBlobs indexOfObjectPassingTest:^(id kextBlob, NSUInteger idx, BOOL *stop) {
+            const char *bytes = [kextBlob bytes];
             
-            return NO;
+            struct segment_command *segmentText = (struct segment_command *)loadCommandPassingTest((void *)bytes, ^(struct load_command *command) {
+                if (command->cmd == LC_SEGMENT) {
+                    return (BOOL)(((struct segment_command *)command)->vmaddr - 0x1000 /* TODO: why? */ == [loadAddr unsignedIntValue]);
+                }
+                
+                return NO;
+            });
+            
+            return (BOOL)(segmentText != NULL);
         }];
         
-        if (prelinkIndex == NSNotFound) continue;
+        if (kextBlobIndex == NSNotFound) continue;        
         
-        NSString *identifier = [[prelinkInfo objectAtIndex:prelinkIndex] objectForKey:(NSString *)kCFBundleExecutableKey];
-        NSArray *kextEntry = [NSArray arrayWithObjects:kextBlob, [prelinkInfo objectAtIndex:prelinkIndex], nil];
+        NSData *kextBlob = [kernelExtensionBlobs objectAtIndex:kextBlobIndex];
+        NSString *identifier = [prelink objectForKey:(NSString *)kCFBundleExecutableKey];
+        
+        NSArray *kextEntry = [NSArray arrayWithObjects:kextBlob, prelink, nil];
         [namedDictionary setObject:kextEntry forKey:identifier];
     }
     
     return namedDictionary;
 }
 
-struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile) {
-    struct mach_header *header = NULL;
+struct load_command *loadCommandPassingTest(void *kernelFile, BOOL (^commandTest)(struct load_command *)) {
     struct load_command *checkCommand = NULL;
-    struct segment_command *segmentCommand = NULL;
-    uint32_t segment = 0;
+    uint32_t loadCommand = 0;
     
-    header = kernelFile;
-    const char *utf8String = [segmentName UTF8String];
+    struct mach_header *header = kernelFile;
     checkCommand = kernelFile + sizeof(struct mach_header);
     
     do {
-        if (checkCommand->cmd == LC_SEGMENT) {        
-            segmentCommand = (struct segment_command *)checkCommand;
-            if (strncmp(segmentCommand->segname, utf8String, 16) == 0) return segmentCommand;
-        }
-        
+        if (commandTest(checkCommand) == YES) return checkCommand;
         checkCommand = (void *)checkCommand + checkCommand->cmdsize;
-    } while (++segment < header->ncmds);
+    } while (++loadCommand < header->ncmds);
     
-    return segmentCommand;
+    return NULL;
+    
+}
+
+struct segment_command *segmentWithName(NSString *segmentName, void *kernelFile) {
+    const char *utf8String = [segmentName UTF8String];
+    
+    return (struct segment_command *)loadCommandPassingTest(kernelFile, ^(struct load_command *command) {
+        return (BOOL)(strncmp(((struct segment_command *)command)->segname, utf8String, 16) == 0);
+    });
 }
 
 NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFile) { 
@@ -283,7 +293,7 @@ NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFi
         reference = strstr(reference, magic);
         uint32_t objectSize = sizeOfMachOObject((struct mach_header *)reference);
         
-        NSData *objectData = [[NSData alloc] initWithBytesNoCopy:reference length:objectSize freeWhenDone:NO];
+        NSMutableData *objectData = [[NSMutableData alloc] initWithBytesNoCopy:reference length:objectSize freeWhenDone:NO];
         [kextObjects addObject:objectData];
         [objectData release];
         
@@ -291,6 +301,83 @@ NSArray *arrayOfKextBlobs(struct segment_command *segmentCommand, void *kernelFi
     }
 
     return kextObjects;
+}
+
+void symbolicateKexts(NSDictionary *entryPoints, NSDictionary *namedExtensions) {
+    unsigned char *symbolStrings = NULL;
+    struct mach_header *header = NULL;
+    
+    for (NSString *kextName in entryPoints) {
+        NSArray *addresses = [entryPoints objectForKey:kextName];
+        
+        NSNumber *startAddress = [addresses objectAtIndex:0];
+        NSNumber *stopAddress = [addresses objectAtIndex:1];
+        NSData *kextObject = [[namedExtensions objectForKey:kextName] objectAtIndex:0];
+        
+        NSUInteger startSymbolLength = [kextName length] + 6; // "Start\x00"
+        NSUInteger stopSymbolLength = [kextName length] + 5; // "Stop\x00"
+        NSUInteger stringsLength = startSymbolLength + stopSymbolLength + 4; // \x00\x00\x00\x00 at start of table
+        
+        symbolStrings = malloc(stringsLength);
+        memset(symbolStrings, 0, stringsLength);
+        memcpy(symbolStrings + 4, [[kextName stringByAppendingString:@"Start"] UTF8String], startSymbolLength);
+        memcpy(symbolStrings + 4 + startSymbolLength, [[kextName stringByAppendingString:@"Stop"] UTF8String], stopSymbolLength);        
+        
+        struct symtab_command symtabCommand = {
+            .cmd = LC_SYMTAB,
+            .cmdsize = sizeof(struct symtab_command),
+            .nsyms = 2, // KextStart() and KextStop()
+            .strsize = stringsLength,
+        };
+        
+        struct nlist symbols[] = {{
+            .n_un = 0x4, // \x00\x00\x00\x00 at start of table
+            .n_type = N_PEXT|N_SECT,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = [startAddress unsignedIntValue],
+        }, {
+            .n_un = 0x4 + [kextName length] + 6, // \x00\x00\x00\x00 and MyKextStop\x00 at start of table 
+            .n_type = N_PEXT|N_SECT,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = [stopAddress unsignedIntValue],
+        }};
+       
+        NSData *symbolSegmentData = [[NSData alloc] initWithBytesNoCopy:&symtabCommand length:sizeof(struct symtab_command) freeWhenDone:NO];
+        NSMutableData *symbolTableData = [[NSMutableData alloc] initWithBytesNoCopy:symbolStrings length:stringsLength freeWhenDone:NO];
+        [symbolTableData appendBytes:symbols length:(2 * sizeof(struct nlist))];
+        
+        if (![kextObject isKindOfClass:[NSMutableData class]]) error("Kext is not stored in NSMutableData");
+        NSMutableData *mutableKext = (NSMutableData *)kextObject ;
+        header = (struct mach_header *)[mutableKext bytes];    
+        
+        NSUInteger symtabSegmentCmdOffset = sizeof(struct mach_header) + header->sizeofcmds;
+        NSArray *rangesArray = [NSArray arrayWithObject:[NSValue valueWithRange:NSMakeRange(symtabSegmentCmdOffset, sizeof(struct symtab_command))]];
+        
+        [mutableKext insertData:symbolSegmentData atOffset:symtabSegmentCmdOffset];
+        adjustOffsets(mutableKext, rangesArray, NO);
+        
+        header->ncmds++;
+        header->sizeofcmds += sizeof(struct symtab_command);
+        
+        NSUInteger machoBinaryLength = [mutableKext length];
+        [mutableKext insertData:symbolTableData atOffset:machoBinaryLength]; // add to end TODO: why not just append?
+        
+        struct symtab_command *embeddedCommand = (struct symtab_command *)loadCommandPassingTest(header, ^(struct load_command *command) {
+            return (BOOL)(command->cmd == LC_SYMTAB);
+        });
+        
+        if (!embeddedCommand) error("Unable to symbolicate kexts.");
+        
+        embeddedCommand->stroff = machoBinaryLength;
+        embeddedCommand->symoff = machoBinaryLength + stringsLength;
+        
+        [symbolSegmentData release];
+        [symbolTableData release];
+        free(symbolStrings);
+        symbolStrings = NULL;
+    }
 }
 
 uint32_t sizeOfMachOObject(struct mach_header *header) {
