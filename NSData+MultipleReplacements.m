@@ -84,6 +84,10 @@ NSInteger rangeSort(id valueA, id valueB, void *context)
     }
 }
 
+- (void)insertData:(NSData *)data atOffset:(NSUInteger)offset {
+    [self replaceBytesInRange:NSMakeRange(offset, 0) withBytes:[data bytes] length:[data length]];
+}
+
 + (id)dataWithDatas:(NSData *)firstData, ... {
     NSMutableData *mutableData = [NSMutableData dataWithCapacity:[firstData length]];
     

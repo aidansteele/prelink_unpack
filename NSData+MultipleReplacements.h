@@ -30,6 +30,7 @@ NSInteger rangeSort(id valueA, id valueB, void *context);
 @interface NSMutableData (NSData_MultipleReplacements)
 
 - (void)replaceBytesInRanges:(NSArray *)ranges withDatas:(NSArray *)datas;
+- (void)insertData:(NSData *)data atOffset:(NSUInteger)offset;
 + (id)dataWithDatas:(NSData *)firstData, ...;
 
 @end
