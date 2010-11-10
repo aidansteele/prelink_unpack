@@ -359,9 +359,11 @@ void symbolicateKexts(NSDictionary *entryPoints, NSDictionary *namedExtensions) 
         memcpy(symbolStrings + 4 + startSymbolLength, [stopSymbol UTF8String], stopSymbolLength);
         memcpy(symbolStrings + 4 + startSymbolLength + stopSymbolLength, "_kmod_info", kmodSymbolLength);
         
-        uint32_t dataSectionNumber = 0;
+        uint32_t dataSectionNumber = 0, startSectionNumber = 0, stopSectionNumber = 0;
         sectionContainingAddress((void *)header, [kmodAddress unsignedIntValue], NO, &dataSectionNumber);
-         
+        sectionContainingAddress((void *)header, [startAddress unsignedIntValue], NO, &startSectionNumber);
+        sectionContainingAddress((void *)header, [stopAddress unsignedIntValue], NO, &stopSectionNumber);
+        
         struct symtab_command symtabCommand = {
             .cmd = LC_SYMTAB,
             .cmdsize = sizeof(struct symtab_command),
@@ -372,19 +374,19 @@ void symbolicateKexts(NSDictionary *entryPoints, NSDictionary *namedExtensions) 
         struct nlist symbols[] = {{
             .n_un = 0x4, // \x00\x00\x00\x00 at start of table
             .n_type = N_EXT|N_SECT,
-            .n_sect = 1, // TODO: always in (__TEXT, __text)? always section 1?
+            .n_sect = startSectionNumber,
             .n_desc = 0,
             .n_value = [startAddress unsignedIntValue],
         }, {
             .n_un = 0x4 + startSymbolLength, // \x00\x00\x00\x00 and MyKextStop\x00 at start of table 
             .n_type = N_EXT|N_SECT,
-            .n_sect = 1, // TODO: always in (__TEXT, __text)? always section 1?
+            .n_sect = stopSectionNumber,
             .n_desc = 0,
             .n_value = [stopAddress unsignedIntValue],
         }, {
             .n_un = 0x4 + startSymbolLength + stopSymbolLength, // \x00\x00\x00\x00 and MyKextStop\x00 at start of table 
             .n_type = N_EXT|N_SECT,
-            .n_sect = dataSectionNumber, // TODO: always in (__DATA, __data)?
+            .n_sect = dataSectionNumber,
             .n_desc = 0,
             .n_value = [kmodAddress unsignedIntValue],
         }};
