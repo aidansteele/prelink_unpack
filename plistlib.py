@@ -462,7 +462,13 @@ class PlistParser:
     def end_false(self):
         self.addObject(False)
     def end_integer(self):
-        self.addObject(int(self.getData()))
+    	num = self.getData()
+    	base = 10
+    	if num.find('0x') > -1:
+    		base = 16
+    	if len(num) == 0:
+    		num = '0'
+        self.addObject(int(num, base))
     def end_real(self):
         self.addObject(float(self.getData()))
     def end_string(self):
