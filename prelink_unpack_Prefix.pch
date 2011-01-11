@@ -1,7 +1,0 @@
-//
-// Prefix header for all source files of the 'prelink_unpack' target in the 'prelink_unpack' project.
-//
-
-#ifdef __OBJC__
-    #import <Foundation/Foundation.h>
-#endif
