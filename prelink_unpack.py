@@ -107,7 +107,7 @@ def kextObjects(k):
 		obj_end = obj_start + obj_size
 		
 		obj = k[obj_start:obj_end]
-		objects.append(obj)
+		objects.append((obj, obj_start, obj_size))
 		
 		idx = obj_end
 		
@@ -137,7 +137,7 @@ def sizeOfObject(k):
 def nameKextObjects(objs, infoDict):
 	named_objs = {}
 	
-	for obj in objs:
+	for obj, obj_off, obj_size in objs:
 		header = struct.unpack_from(struct__mach_header, obj)
 		loadCommandOffset = struct.calcsize(struct__mach_header)
 
@@ -153,7 +153,7 @@ def nameKextObjects(objs, infoDict):
 					pl_kextName = kextDescriptor.get(PL_KEY_BINNAME)
 					
 					if pl_vmAddr == vmAddr - 0x1000:
-						named_objs[pl_kextName] = obj
+						named_objs[pl_kextName] = (obj, obj_off, obj_size)
 					
 			loadCommandOffset = loadCommandOffset + loadCommand[LC_M_CMDSIZE]
 			
@@ -214,6 +214,19 @@ def isNamed(addr):
 def isCode(addr):
     return idc.isCode(idc.GetFlags(addr))
 
+def nameVtable(obj, name, obj_offset):
+    try:
+        section, _ = sectionWithQualifiedName(obj, ("__TEXT", "__const"))
+    except TypeError: # not a C++ kmod
+        return
+
+    vtableOffset = section[SECT_M_ADDR]
+    constSectSize = section[SECT_M_SIZE]
+
+    idc.MakeUnknown(vtableOffset, constSectSize, DOUNK_SIMPLE)
+    idc.MakeName(vtableOffset, "_ZTV%d%s" % (len(name), name))
+    #idc.OpOff(vtableOffset, -1, 0)
+
 def makeKextCxxMethods(obj, name):
     try:
         section, _ = sectionWithQualifiedName(obj, ("__TEXT", "__const"))
@@ -225,20 +238,22 @@ def makeKextCxxMethods(obj, name):
 
     ptrSize = struct.calcsize(struct__uint32_t)
     nfuncs = vtableSize / ptrSize
-    i = 0
     for idx in range(nfuncs):
         addr, = struct.unpack_from(struct__uint32_t, obj[vtableOffset + (idx * ptrSize):])
 
         if validAddr(addr): #and not isCode(addr):
-            i = i + 1
             makeCode(addr)
-            
-            sanitised = addr & 0xFFFFFFF0
-            if not isNamed(sanitised):
-                idc.MakeName(sanitised, "ge::%s::vtable_%d" % (name, idx))
+            idc.MakeFunction(addr, idc.BADADDR) # ida will guess function bounds
 
-    print name, nfuncs, i, nfuncs - i
-        
+            idc.OpOff(section[SECT_M_ADDR] + (idx * ptrSize), -1, 0)
+            
+            sanitised = addr & 0xFFFFFFFE
+            if not isNamed(sanitised):
+                idc.MakeName(sanitised, "_ZN2ge%d%s%dvtable_%dE" % (len(name), name, len(str(idx)) + 7, idx))
+                #print name, idx, hex(addr), hex(sanitised), vtableOffset
+                #return -1
+                
+
 def test():
 	plinfo = prelinkInfo(k)
 	kep = kextEntryPoints(k, plinfo)
@@ -246,12 +261,15 @@ def test():
 	ko = kextObjects(k)
 	nos = nameKextObjects(ko, plinfo)
 
-        #i = 0
 	for kextName in nos:
-            makeKextCxxMethods(nos[kextName], kextName)
-            #i = i + 1
-            #if i == 5:
-            #    return
+            (obj, obj_off, obj_size) = nos[kextName]
+            nameVtable(obj, kextName, obj_off)
+
+        for kextName in nos:
+            (obj, obj_off, obj_size) = nos[kextName]
+            if makeKextCxxMethods(obj, kextName) == -1:
+                return
+
 
         #for kextName in kep:
         #    makeKmodEntryPoints(kep[kextName], kextName)
